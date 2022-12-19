@@ -132,7 +132,7 @@ class RandomGeneratedSignals(torch.utils.data.Dataset):
             batch_signal_, frequency_arr_ = SignalProducer.produce_batch(batch_size=size//split_batch_num, seconds=20, points_per_second=points_per_second, stable_slot=1, frequency_num=10, frequency_magnitude=100)
             batch_signal = torch.cat((batch_signal_, batch_signal), dim=0)
             frequency_arr = torch.cat((frequency_arr_, frequency_arr), dim=0)
-        spectrogram = torchaudio.transforms.Spectrogram(n_fft=198, return_complex=True, normalized="frame_length")
+        spectrogram = torchaudio.transforms.Spectrogram(n_fft=198, return_complex=True, normalized=True)
         spec = spectrogram(batch_signal)
         self.dataset = {idx:(batch_signal[idx], spec[idx], frequency_arr[idx]) for idx in range(size)}
         self.device = device
@@ -143,7 +143,7 @@ class RandomGeneratedSignals(torch.utils.data.Dataset):
     def __getitem__(self, item):
         audio, spec, frequency_arr = self.dataset.get(item)
         audio = torch.mean(audio.view(-1, 10), axis=1)
-        # spec = F.normalize(spec)
+        spec = F.normalize(spec)
         
         return (spec, audio, frequency_arr)
 
@@ -235,7 +235,10 @@ def sinusoids(length, channels, max_timescale=10000, frequency_magnitude=1000 * 
     # pos_embedding = pos_embedding.unsqueeze(-2)
     return pos_embedding
 
-for A in np.array([1, 10, 100, 200]) * 2 * np.pi:
+max_timescale_list = [10000, 10000, 10000, 10000, 10000, 10000]
+A_list = [1, 10, 100, 200, 500, 1000]
+
+for A in np.array(A_list) * 2 * np.pi:
     # fig, ax = plt.subplots()
     P = sinusoids(length=41, channels=100, max_timescale=10000, frequency_magnitude=A)
     # cax = ax.matshow(P.T)
@@ -515,14 +518,12 @@ def validate(dataloader, model):
     model.train()
     return losses / iters
 
-torch.manual_seed(2022)
-
 model_dictionary = {}
 idx = 0
 validation_dataset = RandomGeneratedSignals(10000)
-validation_dataloader = torch.utils.data.DataLoader(validation_dataset, batch_size=32, shuffle=True)
+validation_dataloader = torch.utils.data.DataLoader(validation_dataset, batch_size=128, shuffle=True)
 
-for sinusoids_max_timescale, sinusoids_frequency_magnitude in zip([10000, 10000, 10000, 10000], np.array([1, 10, 100, 200]) * 2 * np.pi):
+for sinusoids_max_timescale, sinusoids_frequency_magnitude in zip(max_timescale_list, np.array(A_list) * 2 * np.pi):
   print(idx)
   print(sinusoids_max_timescale)
   print(sinusoids_frequency_magnitude)
@@ -530,6 +531,7 @@ for sinusoids_max_timescale, sinusoids_frequency_magnitude in zip([10000, 10000,
   model_dictionary[idx]["sinusoids_max_timescale"] = sinusoids_max_timescale
   model_dictionary[idx]["sinusoids_frequency_magnitude"] = sinusoids_frequency_magnitude
 
+  torch.manual_seed(6666)
   model = Replicator(dims, sinusoids_max_timescale=sinusoids_max_timescale, sinusoids_frequency_magnitude=sinusoids_frequency_magnitude)
   model.to(DEVICE)
   model_dictionary[idx]["model"] = model
@@ -540,7 +542,7 @@ for sinusoids_max_timescale, sinusoids_frequency_magnitude in zip([10000, 10000,
   train_loss_list = []
   validation_loss_list = []
 
-  for epoch in range(3):
+  for epoch in range(15):
     model.train()
     losses = 0
     iters = 0
@@ -591,24 +593,24 @@ for sinusoids_max_timescale, sinusoids_frequency_magnitude in zip([10000, 10000,
 
   idx += 1
 
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(9, 6))
 for key in model_dictionary.keys():
-    A = model_dictionary[key]["sinusoids_frequency_magnitude"]
+    A = int(model_dictionary[key]["sinusoids_frequency_magnitude"] / (2 * np.pi))
     ax.plot(model_dictionary[key]["train_loss_list"], label=f"A: {A}")
 ax.set_xlabel("Epoch")
 ax.set_ylabel("loss")
 ax.set_title("training loss vs epoch")
-fig.legend()
+plt.legend(loc="best")
 fig.savefig('./train_loss.png')
 
-fig, ax = plt.subplots()
+fig, ax = plt.subplots(figsize=(9, 6))
 for key in model_dictionary.keys():
-    A = model_dictionary[key]["sinusoids_frequency_magnitude"]
+    A = int(model_dictionary[key]["sinusoids_frequency_magnitude"] / (2 * np.pi))
     ax.plot(model_dictionary[key]["validation_loss_list"], label=f"A: {A}")
 ax.set_xlabel("Epoch")
 ax.set_ylabel("loss")
 ax.set_title("validation loss vs epoch")
-fig.legend()
+plt.legend(loc="best")
 fig.savefig('./validation_loss.png')
 
 validation_dataloader = torch.utils.data.DataLoader(validation_dataset, batch_size=1, shuffle=True)
@@ -670,7 +672,7 @@ for key in model_dictionary.keys():
 
   model_dictionary[key]["positional_embedding_frequency_in_validation"] = positional_embedding_frequency
 
-fig = plt.figure(figsize = (16, 9))
+fig = plt.figure(figsize=(9, 6))
 ax = plt.axes(projection ="3d")
 for key in model_dictionary.keys():
   fixed_frequency = model_dictionary[key]["fixed_frequency_in_validation"]
@@ -682,14 +684,14 @@ for key in model_dictionary.keys():
   validation_loss = np.array(validation_loss).reshape((-1, 1))
   # print(fixed_frequency.shape, positional_embedding_frequency.shape, validation_loss.shape)
 
-  A = model_dictionary[key]["sinusoids_frequency_magnitude"]
+  A = int(model_dictionary[key]["sinusoids_frequency_magnitude"] / (2 * np.pi))
   ax.scatter(fixed_frequency, positional_embedding_frequency, validation_loss, label=f"A: {A}")
 
 ax.set_xlabel('fixed signal frequency')
 ax.set_ylabel('positional embedding_frequency')
 ax.set_zlabel('validation loss')
 ax.set_title('relationship between positional embedding frequency and signal frequency')
-fig.legend()
+plt.legend(loc="best")
 fig.savefig('./relationship_between_positional_embedding_frequency_and_signal_frequency.png')
 
 
@@ -700,7 +702,7 @@ for key in model_dictionary.keys():
 new_loader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True)
 mel, audio, frequency_arr = next(iter(new_loader))
 
-fig, ax = plt.subplots(5, figsize=(12, 12))
+fig, ax = plt.subplots(len(A_list)+1, figsize=(12, 12))
 ax[0].plot(audio[0].cpu().detach().numpy())
 ax[0].set_title('True signal')
 s = torchaudio.transforms.Spectrogram(n_fft=198)
@@ -722,7 +724,7 @@ for key in model_dictionary.keys():
       logits = r(mel.to(DEVICE), torch.cat((torch.zeros((audio.shape[0], 1)), audio[:, :-1]), dim=1).to(DEVICE))
 
   ax[idx].plot(logits.cpu().detach().numpy())
-  ax[idx].set_title(f'A: {model_dictionary[key]["sinusoids_frequency_magnitude"]}')
+  ax[idx].set_title(f'A: {int(model_dictionary[key]["sinusoids_frequency_magnitude"] / (2 * np.pi))}')
 
   fig_spec = Plot.plot_spectrogram(s(logits.cpu()))
   fig_spec.savefig('./spectrogram' + str(model_dictionary[key]["sinusoids_frequency_magnitude"]) + '.png')
