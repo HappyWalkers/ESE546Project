@@ -10,32 +10,27 @@ Original file is located at
 # ! pip install git+https://github.com/openai/whisper.git
 # ! pip install jiwer
 
-from locale import normalize
-import os
-import numpy as np
-import torch.nn.functional as F
 try:
     import tensorflow  # required in Colab to avoid protobuf compatibility issues
 except ImportError:
     pass
 
-import torch
-import pandas as pd
-import whisper
-
-import torchaudio
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-from tqdm.notebook import tqdm
-
-from operator import ne
-import torch
-import matplotlib.pyplot as plt
 import torchaudio
 import librosa
 import matplotlib.pyplot as plt
-import gc
 import math
+from dataclasses import dataclass
+from typing import Dict
+from typing import Iterable, Optional
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch import Tensor
+from torch import nn
+
+
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 class SignalProducer:
     @staticmethod
@@ -143,7 +138,7 @@ class RandomGeneratedSignals(torch.utils.data.Dataset):
     def __getitem__(self, item):
         audio, spec, frequency_arr = self.dataset.get(item)
         audio = torch.mean(audio.view(-1, 10), axis=1)
-        spec = F.normalize(spec)
+        # spec = F.normalize(spec)
         
         return (spec, audio, frequency_arr)
 
@@ -157,33 +152,7 @@ fig.savefig('./signal_example.png')
 fig = Plot.plot_spectrogram(s[0])
 fig.savefig('./spectrogram_example.png')
 
-s[0].min()
 
-# def sinusoids(length, channels, max_timescale=10000, frequency_magnitude=1000 * 2 * torch.pi):
-#     """Returns sinusoids for positional embedding"""
-#     den = torch.exp(- torch.arange(0, channels, 2)* math.log(max_timescale) / channels)
-#     pos = torch.arange(0, length).reshape(length, 1)
-#     pos_embedding = torch.zeros((length, channels))
-#     pos_embedding[:, 0::2] = torch.sin(frequency_magnitude * pos * den)
-#     pos_embedding[:, 1::2] = torch.cos(frequency_magnitude * pos * den)
-#     # pos_embedding = pos_embedding.unsqueeze(-2)
-#     return pos_embedding
-
-# P = sinusoids(40, 100)
-# # P = getPositionEncoding(40, 100)
-# cax = plt.matshow(P)
-# plt.gcf().colorbar(cax)
-# plt.show()
-
-from dataclasses import dataclass
-from typing import Dict
-from typing import Iterable, Optional
-
-import numpy as np
-import torch
-import torch.nn.functional as F
-from torch import Tensor
-from torch import nn
 
 @dataclass
 class ModelDimensions:
@@ -217,14 +186,6 @@ class Conv1d(nn.Conv1d):
             x, weight.to(x.dtype), None if bias is None else bias.to(x.dtype)
         )
 
-# def sinusoids(length, channels, max_timescale=10, frequency_magnitude=1000 * 2 * torch.pi):
-#     """Returns sinusoids for positional embedding"""
-#     assert channels % 2 == 0
-#     log_timescale_increment = np.log(max_timescale) / (channels // 2 - 1)
-#     inv_timescales = torch.exp(-log_timescale_increment * torch.arange(channels // 2))
-#     scaled_time = torch.arange(length)[:, np.newaxis] * inv_timescales[np.newaxis, :]
-#     return torch.cat([torch.sin(frequency_magnitude * scaled_time), torch.cos(frequency_magnitude * scaled_time)], dim=1)
-
 def sinusoids(length, channels, max_timescale=10000, frequency_magnitude=1000 * 2 * torch.pi):
     """Returns sinusoids for positional embedding"""
     den = torch.exp(- torch.arange(0, channels, 2)* math.log(max_timescale) / channels)
@@ -239,16 +200,10 @@ max_timescale_list = [10000, 10000, 10000, 10000, 10000, 10000]
 A_list = [1, 10, 100, 200, 500, 1000]
 
 for A in np.array(A_list) * 2 * np.pi:
-    # fig, ax = plt.subplots()
     P = sinusoids(length=41, channels=100, max_timescale=10000, frequency_magnitude=A)
-    # cax = ax.matshow(P.T)
-    # plt.gcf().colorbar(cax)
     fig = Plot.plot_spectrogram(specgram=P.T, title='positional embedding')
     fig.savefig('./positional_embedding' + str(A) + '.png')
 
-    # fig.ax = plt.subplots()
-    # cax = ax.matshow(P.T + s[0])
-    # plt.gcf().colorbar(cax)
     fig = Plot.plot_spectrogram(specgram=P.T + s[0], title='positional embedding + spectrogram')
     fig.savefig('./positional_embedding_and_spectrogram' + str(A) + '.png')
 
@@ -399,21 +354,6 @@ class ReconstructionDecoder(nn.Module):
         # print("output", out.shape)
 
         return out
-    
-
-
-# class ReconstructionDecoder(nn.Module):
-#     def __init__(self, n_ctx: int, n_audio_ctx, n_audio_state: int):
-#         super().__init__()
-#         self.mlp = nn.Sequential(Linear(n_audio_ctx*n_audio_state, n_ctx),
-#                                         nn.GELU(),
-#                                         Linear(n_ctx, n_ctx),
-#                                         nn.GELU(),
-#                                         Linear(n_ctx, n_ctx))
-
-
-#     def forward(self, xa):
-#         return self.mlp(xa.view(xa.shape[0], -1))
 
 
 class Replicator(nn.Module):
@@ -442,13 +382,6 @@ class Replicator(nn.Module):
     def embed_audio(self, mel: torch.Tensor):
         return self.encoder(mel)
 
-    # def logits(self, tokens: torch.Tensor, audio_features: torch.Tensor):
-    #     return self.decoder(audio_features)
-
-    # def forward(self, mel: torch.Tensor, tokens: torch.Tensor) -> Dict[str, torch.Tensor]:
-    #     return self.decoder(self.encoder(mel))
-
-
     def logits(self, tokens: torch.Tensor, audio_features: torch.Tensor):
         return self.decoder(tokens, audio_features)
 
@@ -462,39 +395,6 @@ class Replicator(nn.Module):
 
 
 dims = ModelDimensions(100, 41, 100, 4, 4, 1, 400, 100, 4, 2)
-
-
-def train_epoch(model, optimizer, loss_fn, loader):
-    model.to(DEVICE)
-    model.train()
-    losses = 0
-    iters = 0
-    
-    for src, tgt, frequency_arr in loader:
-        src = src.to(DEVICE)
-        tgt = tgt.to(DEVICE)
-        frequency_arr = frequency_arr.to(DEVICE)
-        
-        tokens = torch.cat((torch.zeros((tgt.shape[0], 1)).to(DEVICE), tgt[:, :-1]), dim=1)
-        # tokens = tgt
-        outs = model(src, tokens)
-        outs = outs
-        # print(tokens.shape,  outs.shape, "___")
-        optimizer.zero_grad()
-
-        loss = loss_fn(tgt, outs)
-        loss.backward()
-
-        optimizer.step()
-        losses += loss.item()
-        iters += 1
-        # print(loss.item())
-        # print(outs.shape)
-        if iters%200 == 0:
-            print(loss.item())
-    # del src, tgt
-
-    return losses / iters
 
 def loss_fn(y_pred, target):
     loss = 2 * (y_pred - target).abs() / (y_pred.abs() + target.abs() + 1e-8)
@@ -614,26 +514,6 @@ plt.legend(loc="best")
 fig.savefig('./validation_loss.png')
 
 validation_dataloader = torch.utils.data.DataLoader(validation_dataset, batch_size=1, shuffle=True)
-
-# torch.cuda.memory_summary(device=torch.cuda.current_device(), abbreviated=False)
-# del dataset
-# del loader
-# del s
-# gc.collect()
-
-# def size_of_model(model):
-#   # print(model)
-#   param_size = 0
-#   for param in model.parameters():
-#       param_size += param.nelement() * param.element_size()
-#   buffer_size = 0
-#   for buffer in model.buffers():
-#       buffer_size += buffer.nelement() * buffer.element_size()
-
-#   size_all_mb = (param_size + buffer_size) / 1024**2
-#   print('model size: {:.3f}MB'.format(size_all_mb))
-
-# size_of_model(model=model_dictionary[0]["model"])
 
 for key in model_dictionary.keys():
   model_dictionary[key]["fixed_frequency_in_validation"] = []
